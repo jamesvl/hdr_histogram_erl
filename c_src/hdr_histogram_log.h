@@ -3,18 +3,6 @@
  * Written by Michael Barker and released to the public domain,
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/
  *
- * This code follows the Plan 9 approach to header declaration.  In order
- * to maintain fast builds does not define it's dependent headers.
- * They should be included manually by the user.  This code requires:
- *
- * - #include <stdint.h>
- * - #include <stdbool.h>
- * - #include <stdio.h>
- * - #include <time.h>
- *
- * The source for the hdr_histogram utilises a few C99 constructs, specifically
- * the use of stdint/stdbool and inline variable declaration.
- *
  * The implementation makes use of zlib to provide compression.  You will need
  * to link against -lz in order to link applications that include this header.
  */
@@ -29,15 +17,34 @@
 #define HDR_INFLATE_INIT_FAIL -29995
 #define HDR_INFLATE_FAIL -29994
 #define HDR_LOG_INVALID_VERSION -29993
+#define HDR_TRAILING_ZEROS_INVALID -29992
+#define HDR_VALUE_TRUNCATED -29991
+#define HDR_ENCODED_INPUT_TOO_LONG -29990
 
-int hdr_decode(uint8_t* b, size_t len, struct hdr_histogram** h);
-int hdr_encode_uncompressed(struct hdr_histogram* h, uint8_t** ch, int* len);
-int hdr_decode_uncompressed(uint8_t* b, size_t len, struct hdr_histogram** h);
-int hdr_encode_compressed(struct hdr_histogram* h, uint8_t** ch, int* len);
-int hdr_decode_compressed(uint8_t* b, size_t len, struct hdr_histogram** h);
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>
+
+#include "hdr_time.h"
+#include "hdr_histogram.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Encode and compress the histogram with gzip.
+ */
+int hdr_log_encode(struct hdr_histogram* histogram, char** encoded_histogram);
+
+/**
+ * Decode and decompress the histogram with gzip.
+ */
+int hdr_log_decode(struct hdr_histogram** histogram, char* base64_histogram, size_t base64_len);
 
 struct hdr_log_writer
 {
+    uint32_t nonce;
 };
 
 /**
@@ -63,7 +70,7 @@ int hdr_log_write_header(
     struct hdr_log_writer* writer,
     FILE* file,
     const char* user_prefix,
-    struct timespec* timestamp);
+    hdr_timespec* timestamp);
 
 /**
  * Write an hdr_histogram entry to the log.  It will be encoded in a similar
@@ -89,15 +96,15 @@ int hdr_log_write_header(
 int hdr_log_write(
     struct hdr_log_writer* writer,
     FILE* file,
-    const struct timespec* start_timestamp,
-    const struct timespec* end_timestamp,
+    const hdr_timespec* start_timestamp,
+    const hdr_timespec* end_timestamp,
     struct hdr_histogram* histogram);
 
 struct hdr_log_reader
 {
     int major_version;
     int minor_version;
-    struct timespec start_timestamp;
+    hdr_timespec start_timestamp;
 };
 
 /**
@@ -131,7 +138,9 @@ int hdr_log_read_header(struct hdr_log_reader* reader, FILE* file);
  * @param timestamp The first timestamp from the CSV entry.
  * @param interval The second timestamp from the CSV entry
  * @return Will return 0 on success or an error number if there was some wrong
- * when reading in the histogram.  HDR_INFLATE_INIT_FAIL or HDR_INFLATE_FAIL if
+ * when reading in the histogram.  EOF (-1) will indicate that there are no more
+ * histograms left to be read from 'file'.
+ * HDR_INFLATE_INIT_FAIL or HDR_INFLATE_FAIL if
  * there was a problem with Gzip.  HDR_COMPRESSION_COOKIE_MISMATCH or
  * HDR_ENCODING_COOKIE_MISMATCH if the cookie values are incorrect.
  * HDR_LOG_INVALID_VERSION if the log can not be parsed.  ENOMEM if buffer space
@@ -140,7 +149,7 @@ int hdr_log_read_header(struct hdr_log_reader* reader, FILE* file);
  */
 int hdr_log_read(
     struct hdr_log_reader* reader, FILE* file, struct hdr_histogram** histogram,
-    struct timespec* timestamp, struct timespec* interval);
+    hdr_timespec* timestamp, hdr_timespec* interval);
 
 /**
  * Returns a string representation of the error number.
@@ -149,5 +158,9 @@ int hdr_log_read(
  * @return The user readable representation of the error.
  */
 const char* hdr_strerror(int errnum);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
