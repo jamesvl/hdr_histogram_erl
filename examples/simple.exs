@@ -6,9 +6,9 @@
 defmodule Simple do
   def main do
     # create a fresh HDR histogram instance
-    {:ok, ref} = :hdr_histogram.open(1000000, 3)
+    {:ok, ref} = :hdr_histogram.open(1_000_000, 3)
 
-    n = 10000000
+    n = 10_000_000
 
     # record a random uniform distribution of 1M data points
     started = :os.timestamp
@@ -34,8 +34,8 @@ defmodule Simple do
     IO.puts "Median #{:hdr_histogram.median(ref)}"
     IO.puts "Max #{:hdr_histogram.max(ref)}"
     IO.puts "Stddev #{:hdr_histogram.stddev(ref)}"
-    IO.puts "99ile #{:hdr_histogram.percentile(ref,99.0)}"
-    IO.puts "99.9999ile #{:hdr_histogram.percentile(ref,99.9999)}"
+    IO.puts "99ile #{:hdr_histogram.percentile(ref, 99.0)}"
+    IO.puts "99.9999ile #{:hdr_histogram.percentile(ref, 99.9999)}"
     IO.puts "Memory Size #{:hdr_histogram.get_memory_size(ref)}"
     IO.puts "Total Count #{:hdr_histogram.get_total_count(ref)}"
 
@@ -47,7 +47,7 @@ defmodule Simple do
 
   def loop(_ref, 0), do: :ok
   def loop(ref, x) do
-    :hdr_histogram.record(ref, :random.uniform(1000000))
+    :hdr_histogram.record(ref, :rand.uniform(1_000_000))
     loop(ref, x - 1)
   end
 end
