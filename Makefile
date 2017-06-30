@@ -35,7 +35,7 @@ clean:
 
 perf: build
 	$(CC) -ggdb -c -O3 -ffast-math -std=c99 -I c_src perf/hh.c -o perf/hh.o
-	$(CC) -ggdb -lm -o perf/hh c_src/hdr_histogram.o perf/hh.o
+	$(CC) -ggdb -o perf/hh c_src/hdr_histogram.o perf/hh.o -lm
 	perf/hh 1000000 1000000 1
 	perf/hh 100000000 1000000 1
 	perf/hh 1000000000 1000000 1
