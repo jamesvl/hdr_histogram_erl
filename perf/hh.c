@@ -42,7 +42,7 @@ int main(int argc, char** argv)
     unsigned long h = atoi(argv[2]);
     unsigned int f = atoi(argv[3]);
 
-    hdr_histogram_t* hh;
+    struct hdr_histogram* hh;
     hdr_alloc(h,f,&hh);
 
     struct timeval s, e;

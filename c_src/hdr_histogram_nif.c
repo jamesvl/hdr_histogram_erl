@@ -118,7 +118,7 @@ typedef struct
 {
     int64_t highest_trackable_value;
     int significant_figures;
-    hdr_histogram_t* data;
+    struct hdr_histogram* data;
 } hh_ctx_t;
 
 static inline ERL_NIF_TERM make_error(ErlNifEnv* env, const char* text)
@@ -130,7 +130,6 @@ static inline ERL_NIF_TERM make_error(ErlNifEnv* env, const char* text)
     );
 }
 
-ERL_NIF_TERM _hh_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_get_memory_size(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_get_total_count(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
@@ -155,7 +154,7 @@ ERL_NIF_TERM _hh_reset(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_from_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hh_to_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
-ERL_NIF_TERM _hh_to_binary_uncompressed(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+// ERL_NIF_TERM _hh_to_binary_uncompressed(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
 ERL_NIF_TERM _hi_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM _hi_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
@@ -219,7 +218,7 @@ ERL_NIF_TERM _hh_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
 
-    hdr_histogram_t* raw_histogram;
+    struct hdr_histogram* raw_histogram;
 
     int rc = 0;
     rc = hdr_alloc(highest_trackable_value, significant_figures, &raw_histogram);
@@ -561,7 +560,7 @@ ERL_NIF_TERM _hh_percentile(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     {
         return enif_make_badarg(env);
     }
-   
+
     if (ctx != NULL)
     {
         if (ctx->data->total_count == 0)
@@ -599,7 +598,7 @@ ERL_NIF_TERM _hh_same(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     {
         return enif_make_badarg(env);
     }
-   
+
     if (ctx != NULL)
     {
         return hdr_values_are_equivalent(ctx->data,a,b)
@@ -834,8 +833,8 @@ ERL_NIF_TERM _hh_from_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
       return enif_make_badarg(env);
     }
 
-    hdr_histogram_t* target = NULL;
-    int success = hdr_decode(source.data, source.size, &target);
+    struct hdr_histogram* target = NULL;
+    int success = hdr_log_decode(&target, (char *)source.data, source.size);
 
     if (success != 0)
     {
@@ -845,7 +844,7 @@ ERL_NIF_TERM _hh_from_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
     ErlNifResourceType* ctx_type = get_hh_ctx_type(env);
     hh_ctx_t* ctx = (hh_ctx_t*)enif_alloc_resource(ctx_type, sizeof(hh_ctx_t));
 
-    ctx->data = (hdr_histogram_t*)target;
+    ctx->data = (struct hdr_histogram*)target;
     ctx->highest_trackable_value = target->highest_trackable_value;
     ctx->significant_figures = target->significant_figures;
 
@@ -871,8 +870,9 @@ ERL_NIF_TERM _hh_to_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     int size = 0;
-    uint8_t* data = NULL;
-    int success = hdr_encode_compressed(ctx->data, &data, &size);
+    char* data = NULL;
+    int success = hdr_log_encode(ctx->data, &data);
+    size = strlen(data);
 
     if (success != 0)
     {
@@ -883,42 +883,10 @@ ERL_NIF_TERM _hh_to_binary(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     {
         return make_error(env, "bad_hdr_binary_alloc");
     }
+
     target.size = size;
     memcpy(target.data,data,size);
     free(data);
-
-    return enif_make_binary(env, &target);
-}
-
-ERL_NIF_TERM _hh_to_binary_uncompressed(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    hh_ctx_t* ctx = NULL;
-    ErlNifBinary target;
-
-    ErlNifResourceType* ctx_type = get_hh_ctx_type(env);
-    if (argc != 1 ||
-        ctx_type == NULL ||
-        !enif_get_resource(env, argv[0], ctx_type, (void **)&ctx) ||
-        ctx->data == NULL)
-    {
-        return enif_make_badarg(env);
-    }
-    int size = 0;
-    uint8_t* data = NULL;
-    int success = hdr_encode_uncompressed(ctx->data, &data, &size);
-
-    if (!enif_alloc_binary(size, &target))
-    {
-        return make_error(env, "bad_hdr_binary_alloc");
-    }
-    target.size = size;
-    memcpy(target.data,data,size);
-    free(data);
-
-    if (success != 0)
-    {
-        return make_error(env, "bad_hdr_binary");
-    }
 
     return enif_make_binary(env, &target);
 }
@@ -1052,12 +1020,12 @@ ERL_NIF_TERM _hi_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     if (iterator_type == HDR_ITER_REC)
     {
-        struct hdr_recorded_iter * iter =
-            enif_alloc(sizeof(struct hdr_recorded_iter));
+        struct hdr_iter * iter = enif_alloc(sizeof(*iter));
         if (!iter) {
             return make_error(env, "not_enough_memory");
         }
-        hdr_recorded_iter_init(iter, hdr->data);
+
+        hdr_iter_recorded_init(iter, hdr->data);
         it = iter;
     }
 
@@ -1067,12 +1035,13 @@ ERL_NIF_TERM _hi_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         {
             return make_error(env, "bad_linear_value_unit");
         }
-        struct hdr_linear_iter * iter =
-            enif_alloc(sizeof(struct hdr_linear_iter));
+
+        struct hdr_iter * iter = enif_alloc(sizeof(*iter));
         if (!iter) {
             return make_error(env, "not_enough_memory");
         }
-        hdr_linear_iter_init(
+
+        hdr_iter_linear_init(
             iter,
             hdr->data,
             opts->linear_value_units_per_bucket);
@@ -1089,12 +1058,13 @@ ERL_NIF_TERM _hi_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         {
             return make_error(env, "bad_log_base");
         }
-        struct hdr_log_iter * iter =
-            enif_alloc(sizeof(struct hdr_log_iter));
+
+        struct hdr_iter * iter = enif_alloc(sizeof(*iter));
         if (!iter) {
             return make_error(env, "not_enough_memory");
         }
-        hdr_log_iter_init(
+
+        hdr_iter_log_init(
             iter,
             hdr->data,
             opts->log_value_units_first_bucket,
@@ -1108,12 +1078,13 @@ ERL_NIF_TERM _hi_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         {
             return make_error(env, "bad_percentile_half_ticks");
         }
-        struct hdr_percentile_iter * iter =
-            enif_alloc(sizeof(struct hdr_percentile_iter));
+
+        struct hdr_iter * iter = enif_alloc(sizeof(*iter));
         if (!iter) {
             return make_error(env, "not_enough_memory");
         }
-        hdr_percentile_iter_init(
+
+        hdr_iter_percentile_init(
             iter,
             hdr->data,
             opts->percentile_ticks_per_half_distance);
@@ -1142,29 +1113,25 @@ ERL_NIF_TERM _hi_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (ctx != NULL && ctx->type == HDR_ITER_REC)
     {
         // skip until first non-zero index
-        bool has_next = false;
-        while (ctx->iter != NULL && (has_next = hdr_recorded_iter_next(ctx->iter)))
+        while (ctx->iter != NULL && hdr_iter_next(ctx->iter))
         {
-            struct hdr_recorded_iter* x = ((struct hdr_recorded_iter*)ctx->iter);
-            struct hdr_iter iter = x->iter;
-            if (0 != iter.count_at_index)
+            struct hdr_iter* iter = ctx->iter;
+            struct hdr_iter_recorded x = iter->specifics.recorded;
+
+            if (0 != iter->count)
             {
-                int64_t stp = x->count_added_in_this_iteration_step;
-                int32_t bdx = iter.bucket_index;
-                int64_t sdx = iter.sub_bucket_index;
-                int64_t val = iter.value_from_index;
-                int64_t cat = iter.count_at_index;
-                int64_t cto = iter.count_to_index;
-                int64_t heq = iter.highest_equivalent_value;
+                int64_t stp = x.count_added_in_this_iteration_step;
+                int32_t bdx = iter->counts_index;
+                int64_t val = iter->value;
+                int64_t cat = iter->count;
+                int64_t cto = iter->cumulative_count;
+                int64_t heq = iter->highest_equivalent_value;
                 return enif_make_tuple2(env,
                   ATOM_RECORD,
-                  enif_make_list(env, 7,
+                  enif_make_list(env, 6,
                       enif_make_tuple2(env,
                           ATOM_BUCKET_IDX,
                           enif_make_int(env,bdx)),
-                      enif_make_tuple2(env,
-                          ATOM_SUB_BUCKET_IDX,
-                          enif_make_int64(env,sdx)),
                       enif_make_tuple2(env,
                           ATOM_VAL_FROM_IDX,
                           enif_make_int64(env,val)),
@@ -1187,32 +1154,30 @@ ERL_NIF_TERM _hi_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (ctx != NULL && ctx->type == HDR_ITER_LIN)
     {
         // skip until first non-zero index
-        bool has_next = false;
-        while (ctx->iter != NULL && (has_next = hdr_linear_iter_next(ctx->iter)))
+        while (ctx->iter != NULL && hdr_iter_next(ctx->iter))
         {
-            struct hdr_linear_iter* x = ((struct hdr_linear_iter*)ctx->iter);
-            struct hdr_iter iter = x->iter;
-            if (0 != iter.count_at_index)
+            struct hdr_iter* iter = ctx->iter;
+            struct hdr_iter_linear x = iter->specifics.linear;
+            //struct hdr_iter iter = x->iter;
+            if (0 != iter->count)
             {
-                int64_t stp = x->count_added_in_this_iteration_step;
-                int32_t vub = x->value_units_per_bucket;
-                int64_t nvl = x->next_value_reporting_level;
-                int64_t nve = x->next_value_reporting_level_lowest_equivalent;
-                int32_t bdx = iter.bucket_index;
-                int64_t sdx = iter.sub_bucket_index;
-                int64_t val = iter.value_from_index;
-                int64_t cat = iter.count_at_index;
-                int64_t cto = iter.count_to_index;
-                int64_t heq = iter.highest_equivalent_value;
+                int64_t stp = x.count_added_in_this_iteration_step;
+                int32_t vub = x.value_units_per_bucket;
+                int64_t nvl = x.next_value_reporting_level;
+                int64_t nve = x.next_value_reporting_level_lowest_equivalent;
+
+                int32_t bdx = iter->counts_index;
+                int64_t val = iter->value;
+                int64_t cat = iter->count;
+                int64_t cto = iter->cumulative_count;
+                int64_t heq = iter->highest_equivalent_value;
+
                 return enif_make_tuple2(env,
                   ATOM_LINEAR,
-                  enif_make_list(env, 10,
+                  enif_make_list(env, 9,
                       enif_make_tuple2(env,
                           ATOM_BUCKET_IDX,
                           enif_make_int(env,bdx)),
-                      enif_make_tuple2(env,
-                          ATOM_SUB_BUCKET_IDX,
-                          enif_make_int64(env,sdx)),
                       enif_make_tuple2(env,
                           ATOM_VAL_FROM_IDX,
                           enif_make_int64(env,val)),
@@ -1244,33 +1209,29 @@ ERL_NIF_TERM _hi_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (ctx != NULL && ctx->type == HDR_ITER_LOG)
     {
         // skip until first non-zero index
-        bool has_next = false;
-        while (ctx->iter != NULL && (has_next = hdr_log_iter_next(ctx->iter)))
+        while (ctx->iter != NULL && hdr_iter_next(ctx->iter))
         {
-            struct hdr_log_iter* x = (struct hdr_log_iter*)ctx->iter;
-            struct hdr_iter iter = x->iter;
-            if (0 != iter.count_at_index)
+            struct hdr_iter* iter = ctx->iter;
+            struct hdr_iter_log x = iter->specifics.log;
+
+            if (0 != iter->count)
             {
-                int64_t stp = x->count_added_in_this_iteration_step;
-                int32_t vfb = x->value_units_first_bucket;
-                double lgb = x->log_base;
-                int64_t nvl = x->next_value_reporting_level;
-                int64_t nve = x->next_value_reporting_level_lowest_equivalent;
-                int32_t bdx = iter.bucket_index;
-                int64_t sdx = iter.sub_bucket_index;
-                int64_t val = iter.value_from_index;
-                int64_t cat = iter.count_at_index;
-                int64_t cto = iter.count_to_index;
-                int64_t heq = iter.highest_equivalent_value;
+                double lgb = x.log_base;
+                int64_t stp = x.count_added_in_this_iteration_step;
+                int64_t nvl = x.next_value_reporting_level;
+                int64_t nve = x.next_value_reporting_level_lowest_equivalent;
+
+                int32_t bdx = iter->counts_index;
+                int64_t val = iter->value;
+                int64_t cat = iter->count;
+                int64_t cto = iter->cumulative_count;
+                int64_t heq = iter->highest_equivalent_value;
                 return enif_make_tuple2(env,
                   ATOM_LOGARITHMIC,
-                  enif_make_list(env, 11,
+                  enif_make_list(env, 9,
                       enif_make_tuple2(env,
                           ATOM_BUCKET_IDX,
                           enif_make_int(env,bdx)),
-                      enif_make_tuple2(env,
-                          ATOM_SUB_BUCKET_IDX,
-                          enif_make_int64(env,sdx)),
                       enif_make_tuple2(env,
                           ATOM_VAL_FROM_IDX,
                           enif_make_int64(env,val)),
@@ -1283,9 +1244,6 @@ ERL_NIF_TERM _hi_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
                       enif_make_tuple2(env,
                           ATOM_HIGHEST_EQUIV_VAL,
                           enif_make_int64(env,heq)),
-                      enif_make_tuple2(env,
-                          ATOM_VAL_UNITS_FIRST_BUCKET,
-                          enif_make_int(env,vfb)),
                       enif_make_tuple2(env,
                           ATOM_STEP_COUNT,
                           enif_make_int64(env,stp)),
@@ -1305,32 +1263,28 @@ ERL_NIF_TERM _hi_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if (ctx != NULL && ctx->type == HDR_ITER_PCT)
     {
         // skip until first non-zero index
-        bool has_next = false;
-        while (ctx->iter != NULL && (has_next = hdr_percentile_iter_next(ctx->iter)))
+        while (ctx->iter != NULL && hdr_iter_next(ctx->iter))
         {
-            struct hdr_percentile_iter* x = (struct hdr_percentile_iter*)ctx->iter;
-            struct hdr_iter iter = x->iter;
-            if (0 != iter.count_at_index)
+            struct hdr_iter* iter = ctx->iter;
+            struct hdr_iter_percentiles x = iter->specifics.percentiles;
+            //struct hdr_iter iter = x->iter;
+            if (0 != iter->count)
             {
-                bool slv = x->seen_last_value;
-                int32_t tph = x->ticks_per_half_distance;
-                double pti = x->percentile_to_iterate_to;
-                double pct = x->percentile;
-                int32_t bdx = iter.bucket_index;
-                int64_t sdx = iter.sub_bucket_index;
-                int64_t val = iter.value_from_index;
-                int64_t cat = iter.count_at_index;
-                int64_t cto = iter.count_to_index;
-                int64_t heq = iter.highest_equivalent_value;
+                bool slv = x.seen_last_value;
+                int32_t tph = x.ticks_per_half_distance;
+                double pti = x.percentile_to_iterate_to;
+                double pct = x.percentile;
+                int32_t bdx = iter->counts_index;
+                int64_t val = iter->value;
+                int64_t cat = iter->count;
+                int64_t cto = iter->cumulative_count;
+                int64_t heq = iter->highest_equivalent_value;
                 return enif_make_tuple2(env,
                   ATOM_PERCENTILE,
-                  enif_make_list(env, 10,
+                  enif_make_list(env, 9,
                       enif_make_tuple2(env,
                           ATOM_BUCKET_IDX,
                           enif_make_int(env,bdx)),
-                      enif_make_tuple2(env,
-                          ATOM_SUB_BUCKET_IDX,
-                          enif_make_int64(env,sdx)),
                       enif_make_tuple2(env,
                           ATOM_VAL_FROM_IDX,
                           enif_make_int64(env,val)),
@@ -1408,8 +1362,8 @@ static void init(ErlNifEnv* env)
     ATOM_ERROR = enif_make_atom(env, "error");
     ATOM_TRUE = enif_make_atom(env, "true");
     ATOM_FALSE = enif_make_atom(env, "false");
-    ATOM_BUCKET_IDX = enif_make_atom(env, "bucket_index");
-    ATOM_COUNT_AT_IDX = enif_make_atom(env, "count_at_index");
+    ATOM_BUCKET_IDX = enif_make_atom(env, "counts_index");
+    ATOM_COUNT_AT_IDX = enif_make_atom(env, "count");
     ATOM_HIGHEST_EQUIV_VAL = enif_make_atom(env, "highest_equivalent_value");
     ATOM_LINEAR = enif_make_atom(env, "linear");
     ATOM_LINEAR_VAL_UNIT = enif_make_atom(env, "linear_value_unit");
@@ -1427,7 +1381,7 @@ static void init(ErlNifEnv* env)
     ATOM_SUB_BUCKET_IDX = enif_make_atom(env, "sub_bucket_index");
     ATOM_TICKS_PER_HALF_DISTANCE = enif_make_atom(env, "ticks_per_half_distance");
     ATOM_VAL_AT_IDX = enif_make_atom(env, "value_at_index");
-    ATOM_VAL_FROM_IDX = enif_make_atom(env, "value_from_index");
+    ATOM_VAL_FROM_IDX = enif_make_atom(env, "value");
     ATOM_VAL_UNITS_FIRST_BUCKET = enif_make_atom(env, "value_units_first_bucket");
     ATOM_VAL_UNITS_PER_BUCKET = enif_make_atom(env, "value_units_per_bucket");
 }
@@ -1497,7 +1451,7 @@ static ErlNifFunc nif_funcs[] =
     {"close", 1, _hh_close},
     {"from_binary", 1, _hh_from_binary},
     {"to_binary", 1, _hh_to_binary},
-    {"to_binary_uncompressed", 1, _hh_to_binary_uncompressed},
+    // {"to_binary_uncompressed", 1, _hh_to_binary_uncompressed},
     // HDR histogram iteration facility
     {"iter_open", 1, _hi_open},
     {"iter_init", 3, _hi_init},
