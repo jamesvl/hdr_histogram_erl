@@ -20,6 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <stdio.h>
+#include <locale.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
@@ -38,8 +39,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    setlocale(LC_NUMERIC, "");
     unsigned long n = atol(argv[1]);
-    unsigned long h = atoi(argv[2]);
+    unsigned long h = atol(argv[2]);
     unsigned int f = atoi(argv[3]);
 
     struct hdr_histogram* hh;
@@ -57,7 +59,7 @@ int main(int argc, char** argv)
     double en = es * 1e9;
     double hps = (es >= 1.) ? (double)n / es : (double)n * es;
     double nsh = en / n;
-    printf("nh/perf: n: %lu h: %lu sf: %i elapsed: %f (%f hps, %f nsh).\n", n, h, f, es, hps, nsh);
+    printf("nh/perf: n: %'lu h: %'lu sf: %i elapsed: %f (%'f hps, %f nsh).\n", n, h, f, es, hps, nsh);
 
     return 0;
 }
